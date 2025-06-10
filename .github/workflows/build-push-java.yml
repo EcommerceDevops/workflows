@@ -25,6 +25,28 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Configurar Maven settings.xml
+        env:
+          GITHUB_USER: ${{ github.actor }}
+          GITHUB_PACKAGES_PAT: ${{ secrets.PACKAGE_MANAGER_PAT }}
+        run: |
+          mkdir -p ~/.m2
+          cat <<EOF > ~/.m2/settings.xml
+          <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 
+          https://maven.apache.org/xsd/settings-1.0.0.xsd">
+
+            <servers>
+              <server>
+                <id>ecommerce-pom-releases</id>
+                <username>${GITHUB_ACTOR}</username>  
+                <password>${GITHUB_PACKAGES_PAT}</password>  
+              </server>
+            </servers>
+          </settings>
+          EOF
+
       - name: Build Java app with Maven Wrapper
         if: inputs.JAVA == true
         run: |
