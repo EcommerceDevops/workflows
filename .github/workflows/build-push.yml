@@ -14,6 +14,9 @@ on:
       JAVA:
         type: boolean
         default: false
+      PROJECT_VERSION:
+        type: string
+        required: true
 
 jobs:
   build:
@@ -56,7 +59,7 @@ jobs:
       - name: Build Docker images
         run: |
           IMAGE_PATH=${{ secrets.GCP_REGISTRY_ZONE }}-docker.pkg.dev/${{ secrets.GCP_PROJECT }}/${{ vars.REGISTRY }}/${{ inputs.IMAGE_NAME }}
-          docker build -t $IMAGE_PATH:latest -t $IMAGE_PATH:$IMAGE_TAG .
+          docker build --build-arg PROJECT_VERSION=${{ inputs.PROJECT_VERSION }} -t $IMAGE_PATH:latest -t $IMAGE_PATH:$IMAGE_TAG .
 
       - name: Push Docker images
         run: |
