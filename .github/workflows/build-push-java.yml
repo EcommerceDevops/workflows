@@ -7,6 +7,8 @@ on:
         required: true
       GCP_PROJECT:
         required: true
+      PACKAGE_MANAGER_PAT:
+        required: false
     inputs:
       IMAGE_NAME:
         type: string
@@ -14,7 +16,15 @@ on:
       JAVA:
         type: boolean
         default: false
-      PROJECT_VERSION:
+      # Este input ahora recibe el tag de Git (ej: v1.2.5)
+      IMAGE_VERSION:
+        type: string
+        required: true
+      # Inputs añadidos para que el workflow sea completo y funcional
+      GCP_REGISTRY_ZONE:
+        type: string
+        required: true
+      REGISTRY_NAME:
         type: string
         required: true
 
@@ -22,10 +32,14 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout code at specific tag
         uses: actions/checkout@v4
+        # Se asegura de descargar el código en el estado exacto del tag
+        with:
+          ref: ${{ inputs.IMAGE_VERSION }}
 
       - name: Configurar Maven settings.xml
+        if: inputs.JAVA == true
         env:
           GITHUB_USER: ${{ github.actor }}
           GITHUB_PACKAGES_PAT: ${{ secrets.PACKAGE_MANAGER_PAT }}
@@ -73,39 +87,38 @@ jobs:
         run: |
           if [ -f "./mvnw" ]; then
             chmod +x ./mvnw
-            ./mvnw clean package
+            # Pasamos la versión al build de Maven para consistencia
+            ./mvnw clean package -Drevision=${{ inputs.IMAGE_VERSION }}
           else
             echo "No se encontró ./mvnw, omitiendo compilación."
           fi
 
-      - id: "auth"
+      - name: Authenticate to Google Cloud
         uses: "google-github-actions/auth@v2"
         with:
           credentials_json: ${{ secrets.GCP_SA_CREDENTIALS }}
 
-      - name: "Set up Cloud SDK"
-        uses: "google-github-actions/setup-gcloud@v2"
-        with:
-          project_id: "${{ secrets.GCP_PROJECT }}"
-
-      - name: "Use gcloud CLI"
+      - name: Configure Docker for Google Artifact Registry
         run: |
-          gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_ZONE }}-docker.pkg.dev
+          gcloud auth configure-docker ${{ inputs.GCP_REGISTRY_ZONE }}-docker.pkg.dev
 
-      - name: Set image tags
+      - name: Build and Push Docker images
         run: |
-          TIMESTAMP=$(date -u +'%Y%m%d-%H%M%S')
-          # Reemplaza '/' por '-' en el nombre de la rama para evitar errores en el tag
-          BRANCH_NAME=$(echo "${GITHUB_REF##*/}" | tr '/' '-')
-          echo "IMAGE_TAG=${BRANCH_NAME}-${TIMESTAMP}" >> $GITHUB_ENV
+          # Construye la ruta completa a la imagen en Artifact Registry
+          IMAGE_PATH="${{ inputs.GCP_REGISTRY_ZONE }}-docker.pkg.dev/${{ secrets.GCP_PROJECT }}/${{ inputs.REGISTRY_NAME }}/${{ inputs.IMAGE_NAME }}"
+          
+          # La versión se recibe directamente como un input desde el tag de Git
+          VERSION="${{ inputs.IMAGE_VERSION }}"
 
-      - name: Build Docker images
-        run: |
-          IMAGE_PATH=${{ secrets.GCP_REGISTRY_ZONE }}-docker.pkg.dev/${{ secrets.GCP_PROJECT }}/${{ vars.REGISTRY }}/${{ inputs.IMAGE_NAME }}
-          docker build --build-arg PROJECT_VERSION=${{ inputs.PROJECT_VERSION }} -t $IMAGE_PATH:latest -t $IMAGE_PATH:$IMAGE_TAG .
+          echo "Building image for: ${IMAGE_PATH}"
+          echo "Tagging with: ${VERSION} and latest"
 
-      - name: Push Docker images
-        run: |
-          IMAGE_PATH=${{ secrets.GCP_REGISTRY_ZONE }}-docker.pkg.dev/${{ secrets.GCP_PROJECT }}/${{ vars.REGISTRY }}/${{ inputs.IMAGE_NAME }}
-          docker push $IMAGE_PATH:latest
-          docker push $IMAGE_PATH:$IMAGE_TAG
+          # Construye la imagen con dos etiquetas: la versión específica y 'latest'
+          docker build \
+            --build-arg PROJECT_VERSION=${VERSION} \
+            -t "${IMAGE_PATH}:${VERSION}" \
+            -t "${IMAGE_PATH}:latest" .
+          
+          # Empuja ambas etiquetas al registry
+          docker push "${IMAGE_PATH}:${VERSION}"
+          docker push "${IMAGE_PATH}:latest"
