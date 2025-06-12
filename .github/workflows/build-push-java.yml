@@ -7,11 +7,6 @@ on:
         required: true
       GCP_PROJECT:
         required: true
-      # Se añaden los secrets usados en el workflow para que sean declarados
-      PACKAGE_MANAGER_PAT:
-        required: false
-      GCP_REGISTRY_ZONE:
-        required: true
     inputs:
       IMAGE_NAME:
         type: string
@@ -19,7 +14,6 @@ on:
       JAVA:
         type: boolean
         default: false
-
       PROJECT_VERSION:
         type: string
         required: true
@@ -31,15 +25,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-        with:
-          ref: ${{ inputs.PROJECT_VERSION }}
-
       - name: Configurar Maven settings.xml
         env:
           GITHUB_USER: ${{ github.actor }}
           GITHUB_PACKAGES_PAT: ${{ secrets.PACKAGE_MANAGER_PAT }}
         run: |
-          # --- TU SCRIPT DE MAVEN SE MANTIENE EXACTAMENTE IGUAL ---
           mkdir -p ~/.m2
           cat <<EOF > ~/.m2/settings.xml
           <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
@@ -49,6 +39,7 @@ jobs:
             <activeProfiles>
               <activeProfile>github</activeProfile>
             </activeProfiles>
+
             <profiles>
               <profile>
                 <id>github</id>
@@ -82,8 +73,7 @@ jobs:
         run: |
           if [ -f "./mvnw" ]; then
             chmod +x ./mvnw
-            # CAMBIO 2: Se pasa la versión al build de Maven para consistencia.
-            ./mvnw clean package -Drevision=${{ inputs.PROJECT_VERSION }}
+            ./mvnw clean package
           else
             echo "No se encontró ./mvnw, omitiendo compilación."
           fi
@@ -102,16 +92,20 @@ jobs:
         run: |
           gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_ZONE }}-docker.pkg.dev
 
-
+      - name: Set image tags
+        run: |
+          TIMESTAMP=$(date -u +'%Y%m%d-%H%M%S')
+          # Reemplaza '/' por '-' en el nombre de la rama para evitar errores en el tag
+          BRANCH_NAME=$(echo "${GITHUB_REF##*/}" | tr '/' '-')
+          echo "IMAGE_TAG=${BRANCH_NAME}-${TIMESTAMP}" >> $GITHUB_ENV
 
       - name: Build Docker images
         run: |
           IMAGE_PATH=${{ secrets.GCP_REGISTRY_ZONE }}-docker.pkg.dev/${{ secrets.GCP_PROJECT }}/${{ vars.REGISTRY }}/${{ inputs.IMAGE_NAME }}
-          docker build --build-arg PROJECT_VERSION=${{ inputs.PROJECT_VERSION }} -t "${IMAGE_PATH}:${{ inputs.PROJECT_VERSION }}" -t "${IMAGE_PATH}:latest" .
+          docker build --build-arg PROJECT_VERSION=${{ inputs.PROJECT_VERSION }} -t $IMAGE_PATH:latest -t $IMAGE_PATH:$IMAGE_TAG .
 
       - name: Push Docker images
-
         run: |
           IMAGE_PATH=${{ secrets.GCP_REGISTRY_ZONE }}-docker.pkg.dev/${{ secrets.GCP_PROJECT }}/${{ vars.REGISTRY }}/${{ inputs.IMAGE_NAME }}
-          docker push "${IMAGE_PATH}:${{ inputs.PROJECT_VERSION }}"
-          docker push "${IMAGE_PATH}:latest"
+          docker push $IMAGE_PATH:{{ inputs.PROJECT_VERSION }}"
+          docker push $IMAGE_PATH:$IMAGE_TAG
