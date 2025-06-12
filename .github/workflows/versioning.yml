@@ -1,7 +1,9 @@
 name: Reusable - Bump Version and Create Tag
-
 on:
   workflow_call:
+    secrets:
+      WORKFLOW_PAT:
+        required: true
 
 permissions:
   contents: write
@@ -14,14 +16,17 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.WORKFLOW_PAT }}  # Usar PAT en lugar de GITHUB_TOKEN
 
       - name: Calculate, Commit, and Tag Version
         id: versioning
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          
           CURRENT_VERSION=$(cat VERSION)
           COMMIT_MSG=$(git log -1 --pretty=%B)
+          
           if echo "$COMMIT_MSG" | grep -q "\[major\]"; then
             NEW_VERSION=$(echo $CURRENT_VERSION | awk -F. -v OFS=. '{$1++; $2=0; $3=0; print}')
           elif echo "$COMMIT_MSG" | grep -q "\[minor\]"; then
@@ -32,10 +37,14 @@ jobs:
             echo "No version keyword found. Nothing to do."
             exit 0
           fi
+          
           echo "Bumping version from $CURRENT_VERSION to $NEW_VERSION"
           echo "$NEW_VERSION" > VERSION
           git add VERSION
           git commit -m "chore(version): Bump version to $NEW_VERSION"
           git tag "v$NEW_VERSION"
+          
+          # Configurar remote con PAT
+          git remote set-url origin https://x-access-token:${{ secrets.WORKFLOW_PAT }}@github.com/${{ github.repository }}.git
           git push origin main
           git push --tags
