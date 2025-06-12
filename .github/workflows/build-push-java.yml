@@ -107,5 +107,5 @@ jobs:
       - name: Push Docker images
         run: |
           IMAGE_PATH=${{ secrets.GCP_REGISTRY_ZONE }}-docker.pkg.dev/${{ secrets.GCP_PROJECT }}/${{ vars.REGISTRY }}/${{ inputs.IMAGE_NAME }}
-          docker push $IMAGE_PATH:{{ inputs.PROJECT_VERSION }}"
+          docker push $IMAGE_PATH:{{ inputs.PROJECT_VERSION }}
           docker push $IMAGE_PATH:$IMAGE_TAG
