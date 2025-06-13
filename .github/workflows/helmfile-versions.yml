@@ -1,0 +1,171 @@
+name: Update Helmfile Production Values
+
+on:
+  workflow_call:
+    inputs:
+      service_name:
+        description: 'Name of the service (e.g., user-service, api-gateway)'
+        required: true
+        type: string
+      image_tag:
+        description: 'Docker image tag version (e.g., v2.0.3)'
+        required: true
+        type: string
+      environment:
+        description: 'Target environment'
+        required: false
+        type: string
+        default: 'production'
+    secrets:
+      GH_TOKEN:
+        description: 'GitHub token for repository access'
+        required: true
+
+jobs:
+  update-values:
+    runs-on: ubuntu-latest
+    outputs:
+      values-updated: ${{ steps.update.outputs.updated }}
+      
+    steps:
+    - name: Checkout k8s-manifests repository
+      uses: actions/checkout@v4
+      with:
+        repository: EcommerceDevops/k8s-manifests
+        token: ${{ secrets.GH_TOKEN }}
+        fetch-depth: 0
+
+    - name: Configure Git
+      run: |
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+    - name: Determine values file name
+      id: determine-file
+      run: |
+        SERVICE_NAME="${{ inputs.service_name }}"
+        
+        # Map repository names to values file names
+        case "$SERVICE_NAME" in
+          "user-service")
+            VALUES_FILE="user-service-values.yaml"
+            ;;
+          "shipping-service")
+            VALUES_FILE="shipping-service-values.yaml"
+            ;;
+          "proxy-client")
+            VALUES_FILE="proxy-client-values.yaml"
+            ;;
+          "product-service")
+            VALUES_FILE="product-service-values.yaml"
+            ;;
+          "payment-service")
+            VALUES_FILE="payment-service-values.yaml"
+            ;;
+          "order-service")
+            VALUES_FILE="order-service-values.yaml"
+            ;;
+          "favourite-service")
+            VALUES_FILE="favourite-service-values.yaml"
+            ;;
+          "api-gateway")
+            VALUES_FILE="api-gateway-values.yaml"
+            ;;
+          "cloud-config")
+            VALUES_FILE="cloud-config-values.yaml"
+            ;;
+          "service-discovery")
+            VALUES_FILE="discovery-values.yaml"
+            ;;
+          *)
+            echo "Unknown service: $SERVICE_NAME"
+            exit 1
+            ;;
+        esac
+        
+        echo "values_file=$VALUES_FILE" >> $GITHUB_OUTPUT
+        echo "Values file determined: $VALUES_FILE"
+
+    - name: Check if values file exists
+      id: check-file
+      run: |
+        VALUES_PATH="config/production/${{ steps.determine-file.outputs.values_file }}"
+        
+        if [ ! -f "$VALUES_PATH" ]; then
+          echo "Values file not found: $VALUES_PATH"
+          echo "Creating directory structure..."
+          mkdir -p "config/production"
+          
+          # Create basic values file structure
+          cat > "$VALUES_PATH" << EOF
+        image:
+          repository: us-east4-docker.pkg.dev/ecommerce-devops-utils/ecommerce-registry/${{ inputs.service_name }}-ecommerce-boot
+          tag: ${{ inputs.image_tag }}
+        EOF
+          echo "file_exists=false" >> $GITHUB_OUTPUT
+        else
+          echo "file_exists=true" >> $GITHUB_OUTPUT
+        fi
+        
+        echo "values_path=$VALUES_PATH" >> $GITHUB_OUTPUT
+
+    - name: Update image tag in values file
+      id: update
+      run: |
+        VALUES_PATH="${{ steps.check-file.outputs.values_path }}"
+        NEW_TAG="${{ inputs.image_tag }}"
+        
+        echo "Updating $VALUES_PATH with tag: $NEW_TAG"
+        
+        # Check current content
+        echo "Current content:"
+        cat "$VALUES_PATH"
+        
+        # Use yq to update the tag, or add it if it doesn't exist
+        if ! command -v yq &> /dev/null; then
+          echo "Installing yq..."
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+        fi
+        
+        # Update or add the tag
+        yq eval ".image.tag = \"$NEW_TAG\"" -i "$VALUES_PATH"
+        
+        echo "Updated content:"
+        cat "$VALUES_PATH"
+        
+        # Check if there are changes
+        if git diff --quiet "$VALUES_PATH"; then
+          echo "No changes detected"
+          echo "updated=false" >> $GITHUB_OUTPUT
+        else
+          echo "Changes detected"
+          echo "updated=true" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Commit and push changes
+      if: steps.update.outputs.updated == 'true'
+      run: |
+        VALUES_PATH="${{ steps.check-file.outputs.values_path }}"
+        
+        git add "$VALUES_PATH"
+        git commit -m "🚀 Update ${{ inputs.service_name }} image tag to ${{ inputs.image_tag }}
+
+        - Service: ${{ inputs.service_name }}
+        - New tag: ${{ inputs.image_tag }}
+        - Environment: ${{ inputs.environment }}
+        - Updated by: ${{ github.actor }}
+        - Triggered from: ${{ github.repository }}"
+        
+        git push origin main
+        
+        echo "Successfully updated and pushed changes"
+
+    - name: Summary
+      run: |
+        echo "## Update Summary" >> $GITHUB_STEP_SUMMARY
+        echo "- **Service**: ${{ inputs.service_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **New Tag**: ${{ inputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Values File**: ${{ steps.determine-file.outputs.values_file }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Environment**: ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Updated**: ${{ steps.update.outputs.updated }}" >> $GITHUB_STEP_SUMMARY
