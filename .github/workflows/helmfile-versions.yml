@@ -1,4 +1,4 @@
-name: Update Helmfile Production Values
+name: Update Helmfile environment Values
 
 on:
   workflow_call:
@@ -15,7 +15,7 @@ on:
         description: 'Target environment'
         required: false
         type: string
-        default: 'production'
+        default: 'staging'
     secrets:
       WORKFLOW_PAT_ADMIN:
         description: 'GitHub token for repository access'
@@ -89,12 +89,12 @@ jobs:
     - name: Check if values file exists
       id: check-file
       run: |
-        VALUES_PATH="config/production/${{ steps.determine-file.outputs.values_file }}"
+        VALUES_PATH="config/${{ inputs.environment }}/${{ steps.determine-file.outputs.values_file }}"
         
         if [ ! -f "$VALUES_PATH" ]; then
           echo "Values file not found: $VALUES_PATH"
           echo "Creating directory structure..."
-          mkdir -p "config/production"
+          mkdir -p "config/${{ inputs.environment }}"
           
           # Create basic values file structure
           cat > "$VALUES_PATH" << EOF
