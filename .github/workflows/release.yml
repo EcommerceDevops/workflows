@@ -1,0 +1,106 @@
+name: Create Release
+
+on:
+  workflow_call:
+    secrets:
+      PACKAGE_MANAGER_PAT:
+        required: true
+      WORKFLOW_PAT:
+        required: true
+
+permissions:
+  contents: write # Necesario para crear el release en GitHub
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      # Paso 1: Descargar el código del repositorio
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Necesario para generar el changelog completo
+          token: ${{ secrets.WORKFLOW_PAT }} # Usar PAT en lugar de GITHUB_TOKEN
+
+      # Paso 2: Configurar Maven settings.xml para usar el repositorio de GitHub Packages
+      - name: Configurar Maven settings.xml
+        env:
+          GITHUB_USER: ${{ github.actor }}
+          GITHUB_PACKAGES_PAT: ${{ secrets.PACKAGE_MANAGER_PAT }}
+        run: |
+          mkdir -p ~/.m2
+          cat << EOF > ~/.m2/settings.xml
+          <?xml version="1.0" encoding="UTF-8"?>
+          <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+                    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                    xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0
+                    http://maven.apache.org/xsd/settings-1.0.0.xsd">
+            <activeProfiles>
+              <activeProfile>github</activeProfile>
+            </activeProfiles>
+            <profiles>
+              <profile>
+                <id>github</id>
+                <repositories>
+                  <repository>
+                    <id>ecommerce-pom-releases</id>
+                    <name>GitHub EcommerceDevops Apache Maven Packages</name>
+                    <url>https://maven.pkg.github.com/EcommerceDevops/ecommerce-parent</url>
+                    <releases>
+                      <enabled>true</enabled>
+                    </releases>
+                    <snapshots>
+                      <enabled>true</enabled>
+                    </snapshots>
+                  </repository>
+                </repositories>
+              </profile>
+            </profiles>
+            <servers>
+              <server>
+                <id>ecommerce-pom-releases</id>
+                <username>${GITHUB_ACTOR}</username>
+                <password>${GITHUB_PACKAGES_PAT}</password>
+              </server>
+            </servers>
+          </settings>
+          EOF
+
+      # Paso 3: Compilar el proyecto con Maven Wrapper
+      # Esto ejecuta "./mvnw package" para crear el archivo .jar en la carpeta /target
+      - name: Build with Maven
+        run: |
+          chmod +x mvnw
+          ./mvnw clean package
+
+      # Paso 4: Crear el archivo .tar.gz con todo el código fuente
+      # Excluimos la carpeta /target para no incluir los archivos compilados en el fuente.
+      - name: Create Source Code Tarball (Direct Method)
+        run: tar -czvf source-code-${{ github.ref_name }}.tar.gz src pom.xml mvnw mvnw.cmd .mvn system.properties
+
+      - name: Rename JAR Artifact
+        id: rename_jar
+        run: |
+          # Encuentra el archivo JAR generado por Maven (ignorando el .original)
+          ORIGINAL_JAR=$(ls target/*[!original].jar)
+
+          # Obtiene el nombre del repositorio desde el contexto de GitHub
+          REPO_NAME=${{ github.event.repository.name }}
+
+          # Define la nueva ruta y nombre del archivo
+          NEW_JAR_PATH="target/$REPO_NAME.jar"
+
+          echo "Renaming '$ORIGINAL_JAR' to '$NEW_JAR_PATH'..."
+          mv "$ORIGINAL_JAR" "$NEW_JAR_PATH"
+
+      # Paso 5: Crear el Release en GitHub y subir los artefactos
+      - name: Create GitHub Release
+        uses: ncipollo/release-action@v1
+        with:
+          # Lista de archivos a subir: el .jar compilado y el .tar.gz con el código fuente
+          # La expresión "[!original]" evita subir el archivo .jar.original que a veces genera Spring Boot
+          artifacts: |
+            target/${{ github.event.repository.name }}.jar
+            source-code-${{ github.ref_name }}.tar.gz
+          token: ${{ secrets.GITHUB_TOKEN }}
+          generateReleaseNotes: true # Genera las notas del release automáticamente
