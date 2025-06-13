@@ -17,7 +17,7 @@ on:
         type: string
         default: 'production'
     secrets:
-      GH_TOKEN:
+      WORKFLOW_PAT_ADMIN:
         description: 'GitHub token for repository access'
         required: true
 
@@ -32,7 +32,7 @@ jobs:
       uses: actions/checkout@v4
       with:
         repository: EcommerceDevops/k8s-manifests
-        token: ${{ secrets.GH_TOKEN }}
+        token: ${{ secrets.WORKFLOW_PAT_ADMIN }}
         fetch-depth: 0
 
     - name: Configure Git
