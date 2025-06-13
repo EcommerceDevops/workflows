@@ -78,6 +78,21 @@ jobs:
       - name: Create Source Code Tarball (Direct Method)
         run: tar -czvf source-code-${{ github.ref_name }}.tar.gz src pom.xml mvnw mvnw.cmd .mvn system.properties
 
+      - name: Rename JAR Artifact
+        id: rename_jar
+        run: |
+          # Encuentra el archivo JAR generado por Maven (ignorando el .original)
+          ORIGINAL_JAR=$(ls target/*[!original].jar)
+
+          # Obtiene el nombre del repositorio desde el contexto de GitHub
+          REPO_NAME=${{ github.event.repository.name }}
+
+          # Define la nueva ruta y nombre del archivo
+          NEW_JAR_PATH="target/$REPO_NAME.jar"
+
+          echo "Renaming '$ORIGINAL_JAR' to '$NEW_JAR_PATH'..."
+          mv "$ORIGINAL_JAR" "$NEW_JAR_PATH"
+
       # Paso 5: Crear el Release en GitHub y subir los artefactos
       - name: Create GitHub Release
         uses: ncipollo/release-action@v1
@@ -85,7 +100,7 @@ jobs:
           # Lista de archivos a subir: el .jar compilado y el .tar.gz con el código fuente
           # La expresión "[!original]" evita subir el archivo .jar.original que a veces genera Spring Boot
           artifacts: |
-            target/*[!original].jar
+            target/${{ github.event.repository.name }}.jar
             source-code-${{ github.ref_name }}.tar.gz
           token: ${{ secrets.GITHUB_TOKEN }}
           generateReleaseNotes: true # Genera las notas del release automáticamente
